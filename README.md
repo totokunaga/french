@@ -34,7 +34,7 @@ Configuration lives in `.env` (already populated):
 | --- | --- |
 | `ELEVENLABS_API_KEY` | Your ElevenLabs API key. |
 | `ELEVENLABS_VOICE_ID` | French voice used for synthesis. |
-| `ELEVENLABS_MODEL_ID` | `eleven_multilingual_v2` (required for French). |
+| `ELEVENLABS_MODEL_ID` | `eleven_v3` (latest model; supports French). |
 | `ANKI_MEDIA_DIR` | Absolute path to the profile's `collection.media` folder. |
 
 ## Usage
