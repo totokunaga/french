@@ -8,7 +8,10 @@ For every row that does NOT already have a `[sound:...]` tag, this script:
   2. writes `<slug>.mp3` into the Anki media folder,
   3. appends ` [sound:<slug>.mp3]` to the French cell.
 
-Rows are processed in parallel (network-bound work). The input CSV is updated
+Input CSVs are discovered from git: every `.csv` file that is modified
+(staged or unstaged) or untracked relative to HEAD is processed.
+
+Rows are processed in parallel (network-bound work). Each input CSV is updated
 in place, so you re-import the same file into Anki. The .mp3 files land directly
 in the media folder, so Anki picks them up on import.
 """
@@ -19,6 +22,7 @@ import argparse
 import csv
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -29,6 +33,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
 from elevenlabs.core.api_error import ApiError
+from tqdm import tqdm
 
 SOUND_TAG_RE = re.compile(r"\[sound:[^\]]+\]")
 
@@ -150,6 +155,65 @@ def write_rows(path: Path, rows: list[list[str]]) -> None:
         csv.writer(f).writerows(rows)
 
 
+def git(*args: str, cwd: Path | None = None) -> list[str]:
+    """Run a git command and return its non-empty output lines."""
+    try:
+        result = subprocess.run(
+            ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+        )
+    except FileNotFoundError:
+        sys.exit("error: git is not installed or not on PATH")
+    except subprocess.CalledProcessError as exc:
+        sys.exit(f"error: git {' '.join(args)} failed: {exc.stderr.strip()}")
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def changed_csv_files() -> list[Path]:
+    """CSV files that are modified (staged or unstaged) or untracked vs. HEAD."""
+    repo_root = Path(git("rev-parse", "--show-toplevel")[0])
+    # --diff-filter=d excludes deleted files; paths are relative to the repo root.
+    modified = git("diff", "--name-only", "--diff-filter=d", "HEAD", "--", "*.csv", cwd=repo_root)
+    untracked = git("ls-files", "--others", "--exclude-standard", "--", "*.csv", cwd=repo_root)
+    return [repo_root / name for name in sorted(set(modified) | set(untracked))]
+
+
+def process_csv(input_csv: Path, generator: AudioGenerator, workers: int) -> tuple[int, int, int]:
+    """Generate audio for one CSV, updating it in place. Returns (generated, skipped, failed)."""
+    rows = read_rows(input_csv)
+    if not rows:
+        print(f"{input_csv}: no data rows, skipped", file=sys.stderr)
+        return 0, 0, 0
+
+    # Only rows with at least two columns are candidates for audio generation.
+    generated = skipped = failed = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = []
+        for i, row in enumerate(rows):
+            if len(row) < 2:
+                skipped += 1
+                continue
+            futures.append(pool.submit(generator.process_row, i, row[0], row[1]))
+
+        with tqdm(total=len(rows), initial=skipped, desc=input_csv.name, unit="row") as bar:
+            for future in as_completed(futures):
+                index, updated_cell, error = future.result()
+                english = rows[index][0]
+                if error:
+                    # tqdm.write prints above the bar without breaking it.
+                    tqdm.write(f"row {index + 1} ({english!r}): FAILED - {error}", file=sys.stderr)
+                    failed += 1
+                elif updated_cell == rows[index][1]:
+                    skipped += 1
+                else:
+                    rows[index][1] = updated_cell
+                    generated += 1
+                bar.update(1)
+
+    if generated:
+        write_rows(input_csv, rows)
+    return generated, skipped, failed
+
+
 def env(name: str, default: str | None = None) -> str:
     value = os.getenv(name, default)
     if not value:
@@ -161,7 +225,6 @@ def main() -> int:
     load_dotenv()
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("input_csv", type=Path, help="deck-import CSV: english,french per row (updated in place)")
     parser.add_argument(
         "-j", "--workers",
         type=int,
@@ -173,8 +236,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if not args.input_csv.is_file():
-        sys.exit(f"error: input CSV not found: {args.input_csv}")
+    input_csvs = changed_csv_files()
+    if not input_csvs:
+        print("No changed or untracked CSV files found in git; nothing to do.")
+        return 0
 
     media_dir = Path(env("ANKI_MEDIA_DIR"))
     if not media_dir.is_dir():
@@ -188,42 +253,14 @@ def main() -> int:
         model_id=env("ELEVENLABS_MODEL_ID"),
     )
 
-    rows = read_rows(args.input_csv)
-    if not rows:
-        sys.exit("error: input CSV has no data rows")
-
-    # Only rows with at least two columns are candidates for audio generation.
     generated = skipped = failed = 0
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = []
-        for i, row in enumerate(rows):
-            if len(row) < 2:
-                print(f"row {i + 1}: skipped (needs 2 columns), left unchanged", file=sys.stderr)
-                skipped += 1
-                continue
-            futures.append(pool.submit(generator.process_row, i, row[0], row[1]))
+    for input_csv in input_csvs:
+        g, s, f = process_csv(input_csv, generator, args.workers)
+        generated, skipped, failed = generated + g, skipped + s, failed + f
 
-        for future in as_completed(futures):
-            index, updated_cell, error = future.result()
-            english = rows[index][0]
-            if error:
-                print(f"row {index + 1} ({english!r}): FAILED - {error}", file=sys.stderr)
-                failed += 1
-                continue
-            if updated_cell == rows[index][1]:
-                print(f"row {index + 1} ({english!r}): already has audio, skipped")
-                skipped += 1
-            else:
-                rows[index][1] = updated_cell
-                tag = SOUND_TAG_RE.search(updated_cell).group(0)
-                print(f"row {index + 1} ({english!r}): generated {tag}")
-                generated += 1
-
-    write_rows(args.input_csv, rows)
     print(f"\nDone. generated={generated} skipped={skipped} failed={failed}")
-    print(f"Updated CSV in place: {args.input_csv}")
     print(f"Audio written to: {media_dir}")
-    print("Re-import the CSV into Anki to attach the audio.")
+    print("Re-import the updated CSVs into Anki to attach the audio.")
     return 1 if failed else 0
 
 

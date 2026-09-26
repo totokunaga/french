@@ -40,15 +40,18 @@ Configuration lives in `.env` (already populated):
 ## Usage
 
 ```sh
-uv run python src/generate_audio.py path/to/deck.csv
+uv run python src/generate_audio.py
 ```
+
+The input CSVs are picked up from git: every `.csv` file that is modified
+(staged or unstaged) or untracked relative to `HEAD` is processed.
 
 This writes:
 
 - generated `.mp3` files into `ANKI_MEDIA_DIR`, and
-- `[sound:...]` tags appended to the input CSV **in place**.
+- `[sound:...]` tags appended to each changed CSV **in place**.
 
-Then **re-import the CSV into Anki** to attach the audio to the cards.
+Then **re-import the updated CSVs into Anki** to attach the audio to the cards.
 
 Options:
 
