@@ -3,14 +3,15 @@ every morning,tous les matins / chaque matin [sound:tous_les_matins_chaque_matin
 every evening,tous les soirs / chaque soir [sound:tous_les_soirs_chaque_soir.mp3]
 everyday,tous les jours / chaque jour [sound:tous_les_jours_chaque_jour.mp3]
 these days,ces derniers temps [sound:ces_derniers_temps.mp3]
-this week,cette semaine
-next week,la semaine prochaine
-last week,la semaine dernière
-next year,l'année prochaine
-last year,l'année dernière
-this year,cette année
-date,une date
-appointment,un rendez-vous
+this week,cette semaine [sound:cette_semaine.mp3]
+next week,la semaine prochaine [sound:la_semaine_prochaine.mp3]
+last week,la semaine dernière [sound:la_semaine_derniere.mp3]
+next year,l'année prochaine [sound:l_annee_prochaine.mp3]
+last year,l'année dernière [sound:l_annee_derniere.mp3]
+this year,cette année [sound:cette_annee.mp3]
+date,une date [sound:une_date.mp3]
+appointment,un rendez-vous [sound:un_rendez_vous.mp3]
 calendar,un calendrier [sound:un_calendrier.mp3]
 schedule,un emploi du temps [sound:un_emploi_du_temps.mp3]
 Let's meet at A,On se retrouve à A [sound:on_se_retrouve_a_a.mp3]
+I want to travel more <b>in future</b>,J'aimerais voyager davantage <b>à l'avenir</b> [sound:j_aimerais_voyager_davantage_b_a_l_avenir_b.mp3]
